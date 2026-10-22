@@ -25,8 +25,8 @@
 
 const CONFIG = {
     // Image directory settings
-    imageDirectory: "animals2/",  // Directory containing your images
-    imageExtension: ".jpg",                // Image file extension (.png, .jpg, etc.)
+    imageDirectory: "STIMULI_resized/",  // Directory containing your images
+    imageExtension: ".png",                // Image file extension (.png, .jpg, etc.)
     
     // Option 1: Auto-discover images (fetches manifest.json from imageDirectory)
     // Create manifest.json with: {"images": ["image1.png", "image2.png", ...]}
@@ -189,8 +189,8 @@ function generateCheckTrial() {
     const images = getUniqueRandomImages(2);
     if (!images) return null;
     
-    const [stimulus, correctChoice] = images;
-    const incorrectChoice = stimulus;
+    const [stimulus, incorrectChoice] = images;
+    const correctChoice = stimulus;
     const correctIndex = Math.random() < 0.5 ? 0 : 1;
     
     return {

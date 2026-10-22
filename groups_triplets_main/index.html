@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Triadic Judgment Task</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
+    
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-image-button-response@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-multi-select@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-multi-choice@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@1.0.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.0"></script>
+    <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe"></script>
+</head>
+<body></body>
+<script>
+
+// ============================================================================
+// CONFIGURATION - Edit these values for your experiment
+// ============================================================================
+
+const CONFIG = {
+    // Image directory settings
+    imageDirectory: "animals2/",  // Directory containing your images
+    imageExtension: ".jpg",                // Image file extension (.png, .jpg, etc.)
+    
+    // Option 1: Auto-discover images (fetches manifest.json from imageDirectory)
+    // Create manifest.json with: {"images": ["image1.png", "image2.png", ...]}
+    useManifest: true,
+    
+    // // Option 2: Manually specify image filenames (used if useManifest = false)
+    // manualImageList: [
+    //     "image1.png",
+    //     "image2.png",
+    //     "image3.png"
+    //     // Add more filenames here
+    // ],
+    
+    // Trial configuration
+    numRandomTrials: 1, // 550
+    numCheckTrials: 1, // 20
+    numValidationTrials: 1, // 50
+    
+    // Validation triplets - hardcoded for consistency
+    // Set to null to randomly sample validation trials each time
+    validationTriplets: null,
+
+    // validationTriplets: [
+    //     {
+    //         stimulus: "rural_day_old_big_church_1.png",
+    //         choice1: "rural_day_old_small_vehicle_1.png",
+    //         choice2: "urban_eve_old_small_furniture_1.png"
+    //     },
+    //     {
+    //         stimulus: "urban_day_old_small_furniture_1.png",
+    //         choice1: "urban_eve_new_big_church_1.png",
+    //         choice2: "urban_eve_old_black_man_1.png"
+    //     },
+    //     {
+    //         stimulus: "urban_eve_old_black_man_1.png",
+    //         choice1: "urban_eve_new_small_church_1.png",
+    //         choice2: "urban_eve_new_small_vehicle_1.png"
+    //     }
+    //     // Add all 50 validation triplets here for stable validation set
+    // ],
+    
+    // Data saving
+    experimentId: "FywDeGGEu5T3",
+    filenamePrefix: "fpo_mixed_domain_fullSet",
+    
+    // SONA integration
+    sonaExperimentId: "2226",
+    sonaCreditToken: "a9411967764b499caa53a0ecccabe0a1",
+    
+    // Other settings
+    speedThreshold: 900,  // RT threshold for "going too fast" warning
+    consentImage: "kc_lab_consent_prolific.png",
+    secretCode: "C119H2OR"
+};
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+let imagePaths = [];
+
+// Initialize jsPsych with custom progress bar settings
+const jsPsych = initJsPsych({
+    show_progress_bar: true,
+    auto_update_progress_bar: false,
+    on_data_update: function() {
+        jsPsych.data.addProperties({worker_id: urlvar.workerId});
+    },
+    max_load_time: 120000,
+    on_finish: function(data){ 
+        const completionUrl = `https://uwmadison.sona-systems.com/webstudy_credit.aspx?experiment_id=${CONFIG.sonaExperimentId}&credit_token=${CONFIG.sonaCreditToken}&survey_code=${sona_id}`;
+        window.location.assign(completionUrl);
+    }
+});
+
+// Setup variables
+const timeline = [];
+const secret_code = jsPsych.randomization.randomID(8);
+const filename = `${CONFIG.filenamePrefix}_${secret_code}.csv`;
+const urlvar = jsPsych.data.urlVariables();
+
+// SONA integration
+let sona_id = urlvar.workerId;
+
+// Progress tracking
+const n_main_trials = CONFIG.numRandomTrials + CONFIG.numCheckTrials + CONFIG.numValidationTrials;
+let completed_main_trials = 0;
+
+// Save data configuration
+const save_data = {
+    type: jsPsychPipe,
+    action: "save",
+    experiment_id: CONFIG.experimentId,
+    filename: filename,
+    data_string: ()=>jsPsych.data.get().csv()
+};
+
+// ============================================================================
+// IMAGE LOADING FUNCTIONS
+// ============================================================================
+
+// Function to load images from manifest.json
+async function loadImagesFromManifest() {
+    try {
+        const response = await fetch(CONFIG.imageDirectory + 'manifest.json');
+        const data = await response.json();
+        return data.images.map(img => CONFIG.imageDirectory + img);
+    } catch (error) {
+        console.error('Error loading manifest:', error);
+        alert('Failed to load image manifest. Please check that manifest.json exists in ' + CONFIG.imageDirectory);
+        return [];
+    }
+}
+
+// Function to use manual image list
+function loadImagesManually() {
+    return CONFIG.manualImageList.map(img => CONFIG.imageDirectory + img);
+}
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+function shuffle(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+}
+
+function getUniqueRandomImages(n, excludeImages = []) {
+    const availableImages = imagePaths.filter(img => !excludeImages.includes(img));
+    if (availableImages.length < n) {
+        console.error('Not enough unique images available');
+        return null;
+    }
+    return jsPsych.randomization.sampleWithoutReplacement(availableImages, n);
+}
+
+// ============================================================================
+// TRIAL GENERATION FUNCTIONS
+// ============================================================================
+
+function generateRandomTrial() {
+    const images = getUniqueRandomImages(3);
+    if (!images) return null;
+    
+    const [stimulus, choice1, choice2] = images;
+    return {
+        type: 'random',
+        stimulus: stimulus,
+        choice1: choice1,
+        choice2: choice2
+    };
+}
+
+function generateCheckTrial() {
+    const images = getUniqueRandomImages(2);
+    if (!images) return null;
+    
+    const [stimulus, correctChoice] = images;
+    const incorrectChoice = stimulus;
+    const correctIndex = Math.random() < 0.5 ? 0 : 1;
+    
+    return {
+        type: 'check',
+        stimulus: stimulus,
+        choice1: correctIndex === 0 ? correctChoice : incorrectChoice,
+        choice2: correctIndex === 1 ? correctChoice : incorrectChoice,
+        correct_choice: correctIndex
+    };
+}
+
+function createTrialSequence(numRandom, numCheck, numValidation) {
+    let trials = [];
+    
+    // Generate random trials
+    for (let i = 0; i < numRandom; i++) {
+        const trial = generateRandomTrial();
+        if (trial) trials.push(trial);
+    }
+    
+    // Generate check trials
+    for (let i = 0; i < numCheck; i++) {
+        const trial = generateCheckTrial();
+        if (trial) trials.push(trial);
+    }
+    
+    // Add validation trials
+    if (CONFIG.validationTriplets && CONFIG.validationTriplets.length > 0) {
+        // Use hardcoded validation triplets
+        const selectedValidation = CONFIG.validationTriplets.length <= numValidation 
+            ? CONFIG.validationTriplets 
+            : jsPsych.randomization.sampleWithoutReplacement(CONFIG.validationTriplets, numValidation);
+        
+        // Convert to full paths and add type
+        const validationTrials = selectedValidation.map(v => ({
+            type: 'validation',
+            stimulus: CONFIG.imageDirectory + v.stimulus,
+            choice1: CONFIG.imageDirectory + v.choice1,
+            choice2: CONFIG.imageDirectory + v.choice2
+        }));
+        
+        trials = trials.concat(validationTrials);
+    } else {
+        // Generate random validation trials
+        for (let i = 0; i < numValidation; i++) {
+            const trial = generateRandomTrial();
+            if (trial) {
+                trial.type = 'validation';
+                trials.push(trial);
+            }
+        }
+    }
+    
+    return shuffle(trials);
+}
+
+// ============================================================================
+// EXPERIMENT COMPONENTS
+// ============================================================================
+
+// Welcome screen and fullscreen
+const welcome = {
+    type: jsPsychFullscreen,
+    fullscreen_mode: true,
+    message: `<div style="text-align:left; max-width:800px; margin:auto;">
+        <h2>Welcome to the experiment</h2>
+        <p>The experiment will switch to fullscreen mode when you press the button below. It will return to its normal size at the end.</p>
+        <p><b>Please do not exit fullscreen mode during the experiment.</b></p>
+        <p>If you leave fullscreen by accident or something goes wrong, please contact the experimenter directly and <b>do not</b> restart the experiment.</p>
+    </div>`
+};
+
+// Consent — 2 pages
+const consent_1 = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<div style="text-align:left; max-width:800px; margin:auto; font-size:17px;">
+        <h2 style='text-align:center;'>Consent Form</h2>
+        <p style='text-align:center;'><b>Attention and Social Cognition Laboratory; McGill University</b></p>
+        <p><b>Title of Research:</b>XXXXXXXXXXX</p>
+        <p><b>Faculty Supervisor:</b> Dr. Jelena Ristic, Department of Psychology</p>
+        <p><b>Contact Information:</b> Phone: (514) 398-2091; Email: jelena.ristic@mcgill.ca</p>
+        <p><b>Funding Sources:</b> Natural Sciences and Engineering Council of Canada (NSERC); Social Sciences and Humanities Research Council of Canada (SSHRC); McGill University</p>
+        <p><b>Purpose of the research:</b> The purpose of this study is to examine the differences in human perception and attention when we are attending to specific events versus when we are not, as well as to examine how these differences may relate to everyday attentional behavior and life success.</p>
+        <p><b>What is involved in participating:</b> You will be presented with a series of questions, a display of letters or words, pictures of objects, or movie clips, which may be accompanied by sounds. You will view these on the computer screen or on a sheet of paper and will be asked to make judgments about what you see and/or hear. These stimuli may also be delivered by a humanoid robot. We will measure your response time or accuracy on these judgments. If eye monitoring is to be performed, you will be shown the eye monitor before giving consent. If heart rate monitoring is to be performed you will be shown the heart rate monitoring device before providing consent. You will be asked to respond to each display by pressing a button on a keyboard, by looking at a target, by vocal response, or by indicating your response on a sheet of paper. You may also be asked to answer experimenter questions about your everyday attentional experience via email, phone, or text, and/or to keep a diary of those experiences. You will receive practice with specific instructions for any task before you begin (e.g., how to respond). If you are not sure about any instructions, or wish to have more practice, do not hesitate to ask. You may also be asked to fill out one or more questionnaires.</p>        
+        <p><b>Compensation:</b> You will be compensated through your online SONA account. You will be granted 0.5 credits for each half hour the study is estimated to take. There will be no penalty if you finish early or choose to withdraw.</p>
+        <p><b>Time Commitment:</b> 30 minutes.</p>
+        <p><b>Confidentiality:</b> We are not collecting any personally identifiable information. All anonymous data are kept in a secure location.</p>
+        <p><b>Ability to withdraw data:</b> Your participation is entirely voluntary. You can choose to decline to answer any question and to withdraw from the study at any point. If you wish to discontinue the experiment, please exit the browser window. If you wish to withdraw your data, please notify the experimenter via email within 1 week of participation. Data files (experiment and surveys) will be kept for a minimum of 7 years and then destroyed.</p>
+        <p><b>Age Requirement:</b> You must be at least 18 years of age to participate.</p>
+        <p><b>Data Sharing:</b> Funding agencies and publishers often ask researchers to make their data and materials accessible to other researchers upon completion of the study. Making research data available to others allows qualified researchers to reproduce scientific findings and stimulates exploration of existing data sets. In line with these requirements, we will preserve the data for sharing and future reuse. We are not collecting any personally identifiable information, so no data are shared that could potentially identify the participant. Please indicate below if you agree for your anonymized data to be shared in this manner.</p>
+        <p>By participating in this study, you are given an opportunity to witness psychological research and scientific endeavors first hand. Your participation will directly benefit and advance science. If you would like any additional information, feel free to contact Dr. Jelena Ristic at jelena.ristic@mcgill.ca or 514-398-2091. If you have any questions or concerns regarding your rights or welfare as a participant in this research study, please contact the McGill Ethics Manager at 514-398-6831 or lynda.mcneil@mcgill.ca. Your consent below serves to signify that you agree to participate in this study.</p>
+        <p>Your key press below serves to signify that you agree to participate in this study. Please save a copy of this consent form now if desired.</p>
+        <p style='text-align:center;'><b>Consent<br>I have read and understood the above information and I agree to participate in this study (scroll down to get to the button).</b></p>
+    </div>`,
+    choices: ["Agree"],
+    data: {screen: "consent_p1"},
+};
+
+const consent_2 = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<div style="text-align:left; max-width:800px; margin:auto; font-size:17px;">
+        <h2 style='text-align:center;'>Consent Form</h2>
+        <p style='text-align:center;'><b>Consent for data sharing</b></p>
+        <p>I consent for my de-identified data to be shared for future, unspecified uses.</p>
+    </div>`,
+    choices: ["Yes", "No"],
+    data: {screen: "consent_p2"},
+};
+
+// Instructions
+const instructions = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<p>In each trial of this task, you will see three images: one target item on top, and two choices beneath the target item.</p>
+        <p>For each trial, <strong>please select the item that is most similar to the target item USING ANY CRITERIA.</strong></p>
+        <p>There will be ${n_main_trials} trials.</p>
+        <p>Click 'Continue' to begin the test.</p>`,
+    choices: ["Continue"],
+    post_trial_gap: 2000
+};
+
+// Trial presentation
+const createTrial = {
+    type: jsPsychImageButtonResponse,
+    stimulus: jsPsych.timelineVariable('stimulus'),
+    choices: function() {
+        return [
+            jsPsych.timelineVariable('choice1'),
+            jsPsych.timelineVariable('choice2')
+        ];
+    },
+    button_html: '<button class="jspsych-btn"><img src=%choice%></button>',
+    on_finish: function(data) {
+        const trialType = jsPsych.timelineVariable('type');
+        data.trial_type = trialType;
+        data.speedy = data.rt < CONFIG.speedThreshold;
+        data.choices = [jsPsych.timelineVariable('choice1'), jsPsych.timelineVariable('choice2')];
+        
+        if (trialType === 'check') {
+            data.correct = data.response === jsPsych.timelineVariable('correct_choice');
+        }
+        
+        // Update progress bar
+        completed_main_trials++;
+        const progress = completed_main_trials / n_main_trials;
+        jsPsych.setProgressBar(progress);
+    }
+};
+
+// Feedback trials
+const speedFeedback = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: "<p><strong>You're going too fast.</strong></p>Please slow down and assess each triplet.<p>Press 'y' to continue.</p>",
+    choices: ['y']
+};
+
+const checkFeedback = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: "<p><strong>Incorrect!</strong></p>That was an attention check. Please pay attention while completing this task.<p>Press 'y' to continue.</p>",
+    choices: ['y']
+};
+
+// Main procedure
+const mainProcedure = {
+    timeline: [
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: '<p style="text-align:center; font-size: 70px;">+</p>',
+            choices: "NO_KEYS",
+            trial_duration: 500
+        },
+        createTrial,
+        {
+            timeline: [checkFeedback],
+            conditional_function: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return lastTrial.trial_type === 'check' && !lastTrial.correct;
+            }
+        },
+        {
+            timeline: [speedFeedback],
+            conditional_function: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return lastTrial.rt < CONFIG.speedThreshold && lastTrial.trial_type !== 'check';
+            }
+        }
+    ],
+    timeline_variables: [], // Will be populated after images load
+    randomize_order: false,
+    on_timeline_start: function() {
+        jsPsych.setProgressBar(0);
+    }
+};
+
+// Demographics
+const demographic_instructions = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: "<p>Awesome!<p>For this last part of the experiment, please provide us with information about yourself.</p>",
+    choices: ["Continue"],
+    post_trial_gap: 1000
+};
+
+const demographics = {
+    type: jsPsychSurveyMultiSelect,
+    questions: [
+        {
+            prompt: "Which categories describe you? Select all that apply to you:", 
+            options: [
+                "American Indian or Alaska Native (e.g., Navajo Nation, Mayan)", 
+                "Asian (e.g., Chinese, Asian Indian)",
+                "Black or African American (e.g., Jamaican, Ethiopian)",
+                "Hispanic or Latino (e.g., Mexican or Mexican American, Puerto Rican, Salvadoran)",
+                "Middle Eastern or North African (e.g., Lebanese, Iranian, Moroccan)",
+                "Native Hawaiian or Other Pacific Islander (e.g., Somoan, Fijian)",
+                "White (e.g., German, Irish)",
+                "Some other race, ethnicity, or origin",
+                "I prefer not to answer"
+            ], 
+            horizontal: false,
+            required: true,
+            name: 'race_eth'
+        }
+    ]
+};
+
+const id_age = {
+    type: jsPsychSurveyText,
+    questions: [
+        {prompt: "Please enter your age (in years):", 
+        rows: 1, columns: 6, name: "age", required: true},
+        {prompt: "How do you currently describe your gender identity? Please specify.", 
+        rows: 1, columns: 60, name: "gender", required: true}
+    ]
+};
+
+const technical = {
+    type: jsPsychSurveyText,
+    questions: [
+        {prompt: "Did you notice anything interesting during the experiment you wanted to share?", 
+        rows: 7, columns: 60, name: "comments", required: false},
+        {prompt: "Did you experience any technical issues or interruptions during this experiment (e.g., images not showing up at the same time)?", 
+        rows: 7, columns: 60, name: "issues", required: false}
+    ]
+};
+
+// const occupation = {
+//     type: jsPsychSurveyText,
+//     questions: [
+//         {prompt: "What is your current occupation or field of work/study? (e.g., student, teacher, engineer, healthcare, etc.)", rows: 1, columns: 60, name: "occupation", required: false}
+//     ]
+// };
+
+
+// Debriefing and goodbye
+const debrief_form = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<div style="text-align:left; max-width:800px; margin:auto; font-size:17px;">
+        <p>Woohoo! You have finished the experiment. Please take a moment to review the information below. You will be asked to complete a comprehension question to get your SONA credit.</p>
+        <p><b>Project title:</b> Search for Groups (GRUP20)</p>
+        <p><b>Principle Investigator:</b> J. Ristic, Phone: (514) 398-1079</p>
+        <p><b>Experimenters:</b> Luowei Yan, luowei.yan@mail.mcgill.ca</p>
+        <p>This study was designed to investigate how humans perceive interacting groups with members positioned at different distances.</p>
+        <p>Recognition of social interactions is important for our lives. Humans must rapidly search through possible social interactions in order to activate behaviors such as assistance, cooperation, or defense. Recent research has yielded compelling evidence demonstrating that people are faster at locating two individuals who are facing towards versus away from each other (Papeo et al., 2019). In addition to body orientation, proxemics is the study of human use of interpersonal space and its effects on behaviour, communication, and social interactions. Research on proxemics defines four major interpersonal zones in our daily lives: Intimate distance (0-45 cm), Personal distance (45-122 cm), Social distance (122-365 cm), and Public distance (365-762 cm). To investigate the link between our perceptual and real-life interactive preferences in group interactions, the current study will assess whether the search advantage for facing groups is also sensitive to the distance between members.</p>
+        <p>In particular, we presented you with images composed of groups of individuals in two experimental conditions (facing and non-facing) and positioned at two interpersonal distances (personal and public). We asked you to locate a target, which was either a facing group or a non-facing group. We will analyze the accuracy with which you made responses as well as your response time when locating a facing group among non-facing distractors, versus a non-facing group among facing distractors. We will additionally examine whether this behavior changes when we search for groups at different distances. Based on past research, we hypothesize that we will observe faster responses in the detection of facing relative to non-facing groups, with the most pronounced difference at the personal distance.</p>
+        <p>This is basic research in cognitive psychology. We are not testing or evaluating you, nor are we comparing different individuals. Our interest lies in subjects as a group. You will remain completely anonymous in all reports.</p>
+        <p>If you have any further questions about this research, please do not hesitate to contact Dr. Jelena Ristic at (514) 398-2091, or the Research Ethics Manager at McGill University, Lynda McNeil, at (514) 398-6831, between the hours of 9am and 5pm EST.</p>
+        <p>If you wish to know more about this subject matter, you may want to consult this interesting article: Papeo, L., Goupil, N., & Soto-Faraco, S. (2019). Visual Search for People Among People. Psychological Science, 30(10), 1483-1496.</p>
+        <p>Thank you so much for participating. Without the help of volunteers like you, we could not answer many important scientific questions in psychology.</p>
+        <p>Yours truly,<br>
+        Dr. Jelena Ristic<br>
+        Professor</p>
+        
+        <p><b>Please click 'Continue' below to answer a question and get your SONA credit.</b></p>"
+    </div>`,
+    choices: ["Continue"],
+    data: {screen: "debrief"},
+};
+
+const debrief_question = {
+    type: jsPsychSurveyHtmlForm,
+    html: `<div style="text-align:left; max-width:700px; margin:auto;">
+        <p><b>Please choose ONE of the following questions to answer:</b></p>
+        <label><input type="radio" name="debrief_question" value="Question 1" required> Question 1</label><br>
+        <label><input type="radio" name="debrief_question" value="Question 2"> Question 2</label><br>
+        <label><input type="radio" name="debrief_question" value="Question 3"> Question 3</label>
+
+        <p><b>Your answer:</b></p>
+        <textarea name="debrief_answer" rows="6" style="width:100%;" required></textarea>
+    </div>`,
+    button_label: 'Submit',
+    data: { task: 'debrief_question' },
+    on_finish: function(data) {
+        data.debrief_question = data.response.debrief_question;
+        data.debrief_answer = data.debrief_answer;
+    }
+};
+
+const goodbye = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: function(){
+        let output = "Woohoo! You have finished the experiment.<br>";
+        if(urlvar.workerId && urlvar.workerId.length > 7){
+            output += `<strong>Here is your secret code: ${CONFIG.secretCode}</strong><br>`;
+        }
+        output += "Click the button below to complete the experiment.<br><br>";
+        return output;
+    },
+    choices: ['Complete Experiment']
+};
+
+// ============================================================================
+// MAIN EXECUTION
+// ============================================================================
+
+async function initializeExperiment() {
+    // Load images
+    if (CONFIG.useManifest) {
+        imagePaths = await loadImagesFromManifest();
+    } else {
+        imagePaths = loadImagesManually();
+    }
+    
+    if (imagePaths.length === 0) {
+        alert('No images loaded. Please check your configuration.');
+        return;
+    }
+    
+    console.log(`Loaded ${imagePaths.length} images`);
+    
+    // Create preload trial
+    const preload = {
+        type: jsPsychPreload,
+        auto_preload: true,
+        images: imagePaths,
+        show_progress_bar: true,
+        message: "Loading experiment files..."
+    };
+    
+    // Build timeline
+    timeline.push(preload);
+    timeline.push(welcome);
+    timeline.push(consent_1);
+    timeline.push(consent_2);
+    timeline.push(instructions);
+    
+    // Generate trials and add to main procedure
+    mainProcedure.timeline_variables = createTrialSequence(
+        CONFIG.numRandomTrials,
+        CONFIG.numCheckTrials,
+        CONFIG.numValidationTrials
+    );
+    timeline.push(mainProcedure);
+    
+    timeline.push(demographic_instructions);
+    timeline.push(demographics);
+    timeline.push(id_age);
+    timeline.push(technical);
+    timeline.push(debrief_form);
+    timeline.push(debrief_question);
+    timeline.push(save_data);
+    timeline.push(goodbye);
+    
+    // Run experiment
+    jsPsych.run(timeline);
+}
+
+// Start the experiment
+initializeExperiment();
+
+</script>
+</html>
